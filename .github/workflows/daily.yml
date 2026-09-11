@@ -1,0 +1,64 @@
+name: scrb2kindle daily
+
+on:
+  schedule:
+    # GitHub cron 一律使用 UTC：UTC 04:00 = 北京时间 12:00（中国无夏令时）
+    # 注意：定时任务可能被 GitHub 延迟几分钟到十几分钟，属正常现象
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "指定日期 YYYYMMDD（留空则抓取北京时间当天）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# 避免上一次未结束就重复触发
+concurrency:
+  group: scrb2kindle-daily
+  cancel-in-progress: false
+
+jobs:
+  push-to-kindle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 抓取并推送至 Kindle
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          KINDLE_ADDR: ${{ secrets.KINDLE_ADDR }}
+          INPUT_DATE: ${{ inputs.date }}
+        run: |
+          if [ -n "$INPUT_DATE" ]; then
+            echo "== 指定日期: $INPUT_DATE =="
+            python scrb2kindle.py --date "$INPUT_DATE"
+          else
+            echo "== 抓取北京时间当天 =="
+            python scrb2kindle.py
+          fi
+
+      - name: 上传生成的 txt（无论成败，便于排查）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrb-front-txt
+          path: scrb_front_*.txt
+          if-no-files-found: warn
+          retention-days: 7
