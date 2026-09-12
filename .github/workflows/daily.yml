@@ -4,7 +4,7 @@ on:
   schedule:
     # GitHub cron 一律使用 UTC：UTC 04:00 = 北京时间 12:00（中国无夏令时）
     # 注意：定时任务可能被 GitHub 延迟几分钟到十几分钟，属正常现象
-    - cron: "0 4 * * *"
+    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       date:
