@@ -2,8 +2,8 @@ name: scrb2kindle daily
 
 on:
   schedule:
-    # GitHub cron 一律使用 UTC：UTC 04:00 = 北京时间 12:00（中国无夏令时）
-    # 注意：定时任务可能被 GitHub 延迟几分钟到十几分钟，属正常现象
+    # GitHub cron 一律使用 UTC：UTC 06:00 = 北京时间 14:00（中国无夏令时）
+    # 注意：定时任务可能被 GitHub 延迟几分钟到几小时、偶发漏跑，属平台限制
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
@@ -39,6 +39,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: 抓取并推送至 Kindle
+        id: push
+        # 显式 bash 以启用 pipefail，避免 `| tee` 吞掉脚本的失败退出码
+        shell: bash
         env:
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -48,11 +51,14 @@ jobs:
         run: |
           if [ -n "$INPUT_DATE" ]; then
             echo "== 指定日期: $INPUT_DATE =="
-            python scrb2kindle.py --date "$INPUT_DATE"
+            python scrb2kindle.py --date "$INPUT_DATE" 2>&1 | tee run.log
           else
             echo "== 抓取北京时间当天 =="
-            python scrb2kindle.py
+            python scrb2kindle.py 2>&1 | tee run.log
           fi
+          # 提取 [统计]/[提示]/[失败] 行，作为 Bark 通知正文
+          SUMMARY=$(grep -m1 -E '^\[(统计|提示|失败)\]' run.log | sed 's/^\[[^]]*\] //') || true
+          echo "stats=${SUMMARY:-无输出}" >> "$GITHUB_OUTPUT"
 
       - name: 上传生成的 txt（无论成败，便于排查）
         if: always()
@@ -62,3 +68,12 @@ jobs:
           path: scrb_front_*.txt
           if-no-files-found: warn
           retention-days: 7
+
+      - name: 发送 Bark 手机通知（免打扰时段自动跳过）
+        if: always()
+        env:
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+          OUTCOME: ${{ steps.push.outcome }}
+          STATS: ${{ steps.push.outputs.stats }}
+          INPUT_DATE: ${{ inputs.date }}
+        run: python bark_notify.py --outcome "$OUTCOME" --date "$INPUT_DATE" --stats "$STATS"

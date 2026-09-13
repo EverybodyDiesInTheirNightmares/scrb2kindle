@@ -5,7 +5,8 @@
 工作流程：
     1. 抓取头版索引页（/shtml/scrb/{YYYYMMDD}/v01.html），解析全部文章链接；
     2. 逐篇抓取正文，提取标题（h1/h2）与段落（<p>，按 <br> 切分）；
-    3. 合并为 UTF-8 纯文本 txt，每段段首加两个全角空格，标题用【】包裹；
+    3. 合并为 UTF-8 纯文本 txt：首页目录 + 正文，段首两个全角空格，标题用【】包裹，
+       正文命中 keywords.txt 遴选积累词汇的片段用 ★词汇★ 标注；
     4. 通过 SMTP_SSL 将 txt 作为附件发送到 Kindle 邮箱。
 
 敏感信息（SMTP 服务器、账号、授权码、Kindle 邮箱）均从环境变量读取，
@@ -40,6 +41,7 @@ HTTP_RETRIES = 2           # 失败重试次数
 RETRY_WAIT = 5             # 重试间隔（秒）
 FULL_SPACE = "　"          # 全角空格（U+3000），报纸段落缩进
 INDENT = FULL_SPACE * 2    # 段首两个全角空格
+KEYWORDS_FILE = "keywords.txt"   # 遴选积累词汇表（一行一词，# 为注释）
 
 # 需要读取的环境变量
 ENV_KEYS = ("SMTP_SERVER", "SMTP_USER", "SMTP_PASS", "KINDLE_ADDR")
@@ -206,27 +208,80 @@ def fetch_article(url):
 # --------------------------------------------------------------------------- #
 # 组装文本
 # --------------------------------------------------------------------------- #
+def load_keywords(path=KEYWORDS_FILE):
+    """读取遴选积累词汇表（一行一词，# 开头为注释）。
+
+    返回去重后按长度降序的列表：正则交替匹配按书写顺序尝试，
+    长词在前可避免「城乡融合发展」被「城乡融合」抢先命中的截断问题。
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            words = [
+                ln.strip() for ln in fh
+                if ln.strip() and not ln.lstrip().startswith("#")
+            ]
+    except FileNotFoundError:
+        print(f"[提示] 未找到词汇表 {path}，本次不做词汇标注。")
+        return []
+    ordered, seen = [], set()
+    for word in sorted(words, key=len, reverse=True):
+        if word not in seen:
+            seen.add(word)
+            ordered.append(word)
+    return ordered
+
+
+def highlight(text, keywords):
+    """将 text 中命中的词汇用 ★ 包裹标注；词汇表为空时原样返回。"""
+    if not keywords:
+        return text
+    pattern = re.compile("|".join(re.escape(word) for word in keywords))
+    return pattern.sub(lambda m: f"★{m.group(0)}★", text)
+
+
 def build_text(date, articles):
     """将 [(title_lines, paragraphs), ...] 组装为最终纯文本。
 
-    格式：
-        四川日报头版 2026-09-11
-        =======================
-        <空行>
+    格式（多篇时首页带目录，Kindle 打开第一屏即见全部主标题）：
+        2026-09-11
+
+        目　录
+
+        01、标题一
+        02、标题二
+
+        ――――――――――――――
+
         【标题一】
         <空行>
         　　第一段……
-        　　第二段……
         <空行>
         【标题二】
         <空行>
         　　……
+
+    - 目录只收录每篇主标题（title_lines 最后一条，即 h1；引题/副题不上目录）；
+    - 正文命中 keywords.txt 的词汇用 ★词汇★ 标注，便于备考扫读；
+    - 仅一篇时不生成目录；词汇表缺失时不标注，均不影响正常输出。
     """
-    lines = [f"四川日报头版 {date.strftime('%Y-%m-%d')}", "=======================", ""]
+    keywords = load_keywords()
+    # 首页不放「四川日报头版」字样；日期行不加 ==== 下划线，
+    # 否则 Kindle 的 txt 转换器会把该行识别成大标题而放大字号
+    lines = [date.strftime("%Y-%m-%d"), ""]
+
+    if len(articles) > 1:
+        main_titles = [tl[-1].strip("【】") if tl else "(无标题)" for tl, _ in articles]
+        lines.append("目　录")
+        lines.append("")
+        lines.extend(f"{i:02d}、{t}" for i, t in enumerate(main_titles, 1))
+        lines.append("")
+        lines.append("――――――――――――――――")
+        lines.append("")
+
     for title_lines, paragraphs in articles:
         lines.extend(title_lines)
         lines.append("")           # 标题与正文之间空一行
-        lines.extend(paragraphs)
+        lines.extend(highlight(p, keywords) for p in paragraphs)
         lines.append("")           # 文章之间空一行
     # 末尾会多出一个空行，去除后统一补一个换行
     return "\n".join(lines).rstrip("\n") + "\n"
@@ -251,7 +306,7 @@ def send_email(txt_path, date):
     msg["From"] = smtp_user
     msg["To"] = kindle_addr
     msg["Subject"] = f"四川日报头版 {date.strftime('%Y-%m-%d')}"
-    msg.attach(MIMEText("《四川日报》头版正文，请见附件（纯文本）。", "plain", "utf-8"))
+    msg.attach(MIMEText("《四川日报》头版正文，请见附件（纯文本，★标注为遴选积累词汇）。", "plain", "utf-8"))
 
     with open(txt_path, "rb") as fh:
         part = MIMEBase("application", "octet-stream")
