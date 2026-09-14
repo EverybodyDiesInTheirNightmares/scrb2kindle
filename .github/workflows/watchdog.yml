@@ -1,0 +1,47 @@
+name: scrb2kindle watchdog
+
+on:
+  schedule:
+    # 北京时间 16:10 / 18:10 各检查一次：当天主任务未成功则自动补跑
+    # （同样避开整点，降低被排队延迟的概率）
+    - cron: "10 8 * * *"
+    - cron: "10 10 * * *"
+  workflow_dispatch:
+
+# dispatch API 需要 actions:write；检查运行列表需要 actions:read
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: scrb2kindle-watchdog
+  cancel-in-progress: false
+
+jobs:
+  rescue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 当天主任务未成功则通过 API 补跑
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          TODAY=$(TZ=Asia/Shanghai date +%F)
+          echo "检查日期(北京时间): $TODAY"
+
+          base="repos/$REPO/actions/workflows/daily.yml/runs?per_page=10&created=%3E%3D$TODAY"
+          OK=$(gh api "$base&status=success"      --jq '.total_count') || OK=0
+          RUN=$(gh api "$base&status=in_progress" --jq '.total_count') || RUN=0
+          QUE=$(gh api "$base&status=queued"      --jq '.total_count') || QUE=0
+          echo "今天运行情况  成功:$OK  进行中:$RUN  排队:$QUE"
+
+          if [ "$OK" -gt 0 ]; then
+            echo "今日已成功推送，无需补跑。"
+          elif [ "$((RUN + QUE))" -gt 0 ]; then
+            echo "今日已有运行在进行/排队，等待其完成，不重复补跑。"
+          else
+            echo "今日尚无任何运行，通过 workflow_dispatch API 触发补跑…"
+            gh api -X POST "repos/$REPO/actions/workflows/daily.yml/dispatches" -f ref=main
+          fi

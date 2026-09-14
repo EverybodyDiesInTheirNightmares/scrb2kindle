@@ -2,9 +2,9 @@ name: scrb2kindle daily
 
 on:
   schedule:
-    # GitHub cron 一律使用 UTC：UTC 06:00 = 北京时间 14:00（中国无夏令时）
-    # 注意：定时任务可能被 GitHub 延迟几分钟到几小时、偶发漏跑，属平台限制
-    - cron: "0 6 * * *"
+    # GitHub cron 一律使用 UTC：UTC 06:37 = 北京时间 14:37（中国无夏令时）
+    # 避开整点可降低排队延迟；偶发漏跑由 watchdog.yml 看门狗自动补跑
+    - cron: "37 6 * * *"
   workflow_dispatch:
     inputs:
       date:

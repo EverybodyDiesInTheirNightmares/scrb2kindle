@@ -25,13 +25,10 @@
 ```
 scrb2kindle/
 ├── scrb2kindle.py        # 主脚本，含 main()
+├── .github/workflows/daily.yml     # 每日定时推送（北京 14:37）
+├── .github/workflows/watchdog.yml  # 看门狗：当天未成功自动补跑
 ├── bark_notify.py        # Bark 手机通知（免打扰时段自动跳过）
 ├── keywords.txt          # 遴选积累词汇表（命中即用 ★★ 标注，一行一词）
-├── requirements.txt      # requests、beautifulsoup4
-├── config.example.env    # 环境变量模板
-├── README.md             # 本说明
-├── .gitignore            # 忽略生成的 txt 与本地 .env
-└── .github/workflows/daily.yml   # GitHub Actions 每日定时任务
 ```
 
 ## 工作原理
@@ -113,7 +110,7 @@ python run_local.py --date 20260911
 
 ## 四、GitHub Actions 每日自动推送（私有仓库）
 
-定时任务：UTC `0 6 * * *` = **北京时间每天 14:00**（GitHub 的 `cron` 一律按 UTC 计算，中国无夏令时，故固定偏移 -8 小时）。
+定时任务：UTC `37 6 * * *` = **北京时间每天 14:37**（`cron` 按 UTC 计算；避开整点可降低排队延迟）。另有看门狗工作流 `watchdog.yml`，在北京时间 **16:10 / 18:10** 各检查一次，当天主任务未成功会自动补跑。
 
 > 生效条件：工作流文件必须位于**默认分支**（`main`）；仓库连续 **60 天无任何提交**时，GitHub 会自动停用定时任务，需到 Actions 页面手动重新启用。
 > 定时任务在高峰期可能被延迟几分钟到十几分钟，属正常现象。
@@ -149,7 +146,8 @@ git push -u origin main
 
 ### 3. 触发运行
 
-- 自动：每天 **UTC 06:00（北京时间 14:00）** 自动执行；
+- 自动：每天 **UTC 06:37（北京时间 14:37）** 自动执行；
+- 自动补跑：看门狗在北京时间 16:10 / 18:10 检查，当天主任务未成功则经 API 触发 `workflow_dispatch`；
 - 手动：仓库 **Actions** → 左侧选择 `scrb2kindle daily` → 右侧 **Run workflow**；
   - 可在 `date` 输入框填 `20260911` 指定历史日期，留空则抓取北京时间当天，便于首次验证；
 - 运行结束后，该次 Run 底部 **Artifacts** 可下载生成的 `scrb_front_*.txt`，用于核对抓取内容。
@@ -165,5 +163,12 @@ git push -u origin main
 
 - **收不到邮件**：先确认发件邮箱已加入亚马逊「已认可的发件人」，且 `KINDLE_ADDR` 与亚马逊后台显示的接收邮箱完全一致（区分 `@kindle.com` / `@kindle.cn`）。
 - **推送被拒**：附件名已固定为 ASCII（`scrb_front_{YYYYMMDD}.txt`），正文为纯文本，符合亚马逊要求；若仍被拒，检查发件邮箱是否在认可列表。
-- **提示未出报**：14:00 偶有报纸尚未发布，可手动重跑或微调 cron（例如改成 UTC `0 7 * * *`，即北京时间 15:00）。
+- **提示未出报**：14:37 偶有报纸尚未发布，可手动重跑或微调 cron（例如改成 UTC `10 7 * * *`，即北京时间 15:10）。
+- **Actions 定时不准 / 漏跑**：平台固有限制（整点拥堵、偶发事故），已由看门狗自动补跑兜底；极端情况可手动 `Run workflow`，或用 API 触发（令牌需 Actions 读写权限）：
+  ```
+  curl -X POST -H "Authorization: Bearer <你的PAT>" \
+    -H "Accept: application/vnd.github+json" \
+    https://api.github.com/repos/<用户名>/scrb2kindle/actions/workflows/daily.yml/dispatches \
+    -d '{"ref":"main"}'
+  ```
 - **Actions 里没有定时任务**：确认工作流已在默认分支；仓库超过 60 天无提交会被自动停用，需在 Actions 页面重新启用。
