@@ -318,7 +318,8 @@ def send_email(txt_path, date):
         )
         msg.attach(part)
 
-    print(f"[邮件] 通过 {smtp_server} 发送至 {kindle_addr} ...")
+    local_part, _, domain = kindle_addr.partition("@")
+    print(f"[邮件] 通过 {smtp_server} 发送至 {local_part[:2]}***@{domain} ...")
     with smtplib.SMTP_SSL(smtp_server, 465, timeout=HTTP_TIMEOUT) as server:
         server.login(smtp_user, smtp_pass)
         server.sendmail(smtp_user, [kindle_addr], msg.as_string())
