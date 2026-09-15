@@ -231,18 +231,10 @@ def load_keywords(path=KEYWORDS_FILE):
     return ordered
 
 
-def highlight(text, keywords):
-    """将 text 中命中的词汇用 ★ 包裹标注；词汇表为空时原样返回。"""
-    if not keywords:
-        return text
-    pattern = re.compile("|".join(re.escape(word) for word in keywords))
-    return pattern.sub(lambda m: f"★{m.group(0)}★", text)
-
-
 def build_text(date, articles):
     """将 [(title_lines, paragraphs), ...] 组装为最终纯文本。
 
-    格式（多篇时首页带目录，Kindle 打开第一屏即见全部主标题）：
+    格式（首页目录 + 正文 + 文末当日词汇汇总）：
         2026-09-11
 
         目　录
@@ -260,9 +252,18 @@ def build_text(date, articles):
         <空行>
         　　……
 
+        ――――――――――――――
+
+        ★今日积累★
+
+        01、词汇一
+        02、词汇二
+
     - 目录只收录每篇主标题（title_lines 最后一条，即 h1；引题/副题不上目录）；
-    - 正文命中 keywords.txt 的词汇用 ★词汇★ 标注，便于备考扫读；
-    - 仅一篇时不生成目录；词汇表缺失时不标注，均不影响正常输出。
+    - 正文命中 keywords.txt 的词汇用 ★词汇★ 标注，且每个词仅全文首次出现时
+      标注一次，避免正文过密；
+    - 文末集中汇总当天命中的全部词汇（按文中出现顺序），方便集中复习；
+    - 仅一篇时不生成目录、无命中时不生成汇总；词汇表缺失时不标注。
     """
     keywords = load_keywords()
     # 首页不放「四川日报头版」字样；日期行不加 ==== 下划线，
@@ -278,11 +279,41 @@ def build_text(date, articles):
         lines.append("――――――――――――――――")
         lines.append("")
 
+    # 每个词汇仅全文首次出现时标注一次；dict 按插入序保持文中出现顺序
+    marked = {}
+    pattern = (
+        re.compile("|".join(re.escape(word) for word in keywords))
+        if keywords else None
+    )
+
+    def mark_first(paragraph):
+        if pattern is None:
+            return paragraph
+
+        def repl(match):
+            word = match.group(0)
+            if word in marked:
+                return word
+            marked[word] = True
+            return f"★{word}★"
+
+        return pattern.sub(repl, paragraph)
+
     for title_lines, paragraphs in articles:
         lines.extend(title_lines)
         lines.append("")           # 标题与正文之间空一行
-        lines.extend(highlight(p, keywords) for p in paragraphs)
+        lines.extend(mark_first(p) for p in paragraphs)
         lines.append("")           # 文章之间空一行
+
+    # 文末集中汇总当天命中的词汇
+    if marked:
+        lines.append("――――――――――――――――")
+        lines.append("")
+        lines.append("★今日积累★")
+        lines.append("")
+        lines.extend(f"{i:02d}、{word}" for i, word in enumerate(marked, 1))
+        lines.append("")
+
     # 末尾会多出一个空行，去除后统一补一个换行
     return "\n".join(lines).rstrip("\n") + "\n"
 
