@@ -150,7 +150,7 @@ git push -u origin main
 - 自动补跑：看门狗在北京时间 16:10 / 18:10 检查，当天主任务未成功则经 API 触发 `workflow_dispatch`；
 - 手动：仓库 **Actions** → 左侧选择 `scrb2kindle daily` → 右侧 **Run workflow**；
   - 可在 `date` 输入框填 `20260911` 指定历史日期，留空则抓取北京时间当天，便于首次验证；
-- 运行结束后，该次 Run 底部 **Artifacts** 可下载生成的 `scrb_front_*.txt`，用于核对抓取内容。
+- 运行日志可直接查看抓取与发送结果（产物不上传，避免报纸全文公开可下载）。
 
 ## 健壮性说明
 
